@@ -4,8 +4,7 @@ var archiver = require('hypercore-archiver')
 var irc = require('irc')
 var mkdirp = require('mkdirp')
 var minimist = require('minimist')
-var disc = require('discovery-channel')({hash: false})
-var net = require('net')
+var archiverServer = require('archiver-server')
 var pump = require('pump')
 var prettyBytes = require('pretty-bytes')
 
@@ -28,21 +27,10 @@ var argv = minimist(process.argv.slice(2), {
 mkdirp.sync(argv.cwd)
 
 var ar = archiver(argv.cwd)
-var server = net.createServer(function (socket) {
-  pump(socket, ar.replicate(), socket)
-})
+var swarm = archiverServer(ar)
 
-server.listen(argv.port, function () {
-  ar.list().on('data', function (key) {
-    setTimeout(join, Math.floor(Math.random() * 30 * 1000))
-
-    function join () {
-      console.log('Joining', key.toString('hex'))
-      disc.join(ar.discoveryKey(key), server.address().port)
-    }
-  })
-
-  console.log('Listening on port', server.address().port)
+swarm.on('listening', function () {
+  console.log('swarm listening')
 })
 
 var client = new irc.Client(argv.server, argv.name, {
@@ -68,14 +56,12 @@ ar.on('archived', function (key, feed) {
 function add (key) {
   console.log('Adding', key.toString('hex'))
   client.say(argv.channel, 'Adding ' + key.toString('hex'))
-  disc.join(ar.discoveryKey(key), server.address().port)
   ar.add(key, onerror)
 }
 
 function remove (key) {
   console.log('Removing', key.toString('hex'))
   client.say(argv.channel, 'Removing ' + key.toString('hex'))
-  disc.leave(ar.discoveryKey(key), server.address().port)
   ar.remove(key, onerror)
 }
 
