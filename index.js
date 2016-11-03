@@ -27,7 +27,7 @@ var argv = minimist(process.argv.slice(2), {
 mkdirp.sync(argv.cwd)
 
 var ar = archiver(argv.cwd)
-var swarm = archiverServer(ar)
+var swarm = archiverServer(ar, {port: argv.port})
 
 swarm.on('listening', function () {
   console.log('swarm listening')
