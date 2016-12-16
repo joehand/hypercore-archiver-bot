@@ -81,9 +81,8 @@ if (argv.channel) {
     switch (op.command) {
       case 'add':
         pending.push({key: key, channel: channel})
-        ar.add(new Buffer(key, 'hex'), function (err) {
+        add(key, channel, function (err) {
           if (err) return sendMessage(err, channel)
-          sendMessage(null, channel, 'Adding ' + key)
         })
         return
       case 'rm':
@@ -104,11 +103,35 @@ if (argv.channel) {
         return
     }
   })
+}
 
-  function sendMessage (err, channel, msg) {
-    if (err) return client.say(channel, 'Error: ' + err.message)
-    client.say(channel, msg)
-  }
+function sendMessage (err, channel, msg) {
+  if (err && client) return client.say(channel, 'Error: ' + err.message)
+  else if (err) return console.error(err)
+  if (client) client.say(channel, msg)
+}
+
+function add (key, channel, cb) {
+  sendMessage(null, channel, 'Adding ' + key)
+  ar.add(new Buffer(key, 'hex'), function (err) {
+    if (err) return cb(err)
+    ar.get(key, function (err, feed, content) {
+      if (err) return cb(err)
+      if (!content) return waitForDownload(feed)
+      pending.push({key: content.key.toString('hex'), metaKey: key})
+      waitForDownload(content)
+      cb(null)
+
+      function waitForDownload (feed) {
+        setTimeout(function () {
+          feed.once('download', function () {
+            var msg = 'Starting archive of ' + prettyBytes(feed.bytes) + ' from ' + key
+            sendMessage(null, channel, msg)
+          })
+        }, 200)
+      }
+    })
+  })
 }
 
 ar.on('archived', function (key, feed) {
@@ -116,19 +139,25 @@ ar.on('archived', function (key, feed) {
   console.log('Feed archived', key)
   pending = pending.filter(function (obj) {
     if (key !== obj.key) return true
-    if (!obj.metaKey) {
-      waitForContent()
-      return true
+    if (obj.metaKey) {
+      // content feed is done
+      done(obj.metaKey, feed)
+      return false
+    } else if (!checkContent()) {
+      // hypercore feed is done
+      done(obj.key, feed)
+      return false
     }
-    done(obj.metaKey, feed)
-    return false
+    // metadata feed done, wait for content
+    return true
   })
 
-  function waitForContent () {
-    ar.get(key, function (err, feed, content) {
-      if (!content) return done(key, feed)
-      pending.push({key: content.key.toString('hex'), metaKey: key.toString('hex')})
+  function checkContent () {
+    var hasContent = pending.filter(function (obj) {
+      if (obj.metaKey === key) return true
+      return false
     })
+    return hasContent.length
   }
 
   function done (key, feed) {
